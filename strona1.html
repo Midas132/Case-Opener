@@ -4,24 +4,14 @@
   <meta charset="utf-8">
   <title>Case opener</title>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
-    #balance {
-      font-size: 20px;
-      font-weight: bold;
-      margin-bottom: 15px;
-    }
-    .container { width: 300px; height: 100px; overflow: hidden; margin: 20px auto; border: 2px solid #333; position: relative; }
+    body { font-family: Arial, sans-serif; text-align: center; margin-top: 20px; }
+    #balance { font-size: 20px; font-weight: bold; margin-bottom: 15px; }
+    #clicker { margin-bottom: 30px; padding: 10px 20px; font-size: 16px; border-radius: 8px; border: none; background: #4CAF50; color: white; cursor: pointer; }
+    #clicker:hover { background: #45a049; }
+    .case { margin-bottom: 40px; }
+    .container { width: 300px; height: 100px; overflow: hidden; margin: 10px auto; border: 2px solid #333; position: relative; }
     .items { display: flex; transition: transform 4s cubic-bezier(0.25, 1, 0.5, 1); will-change: transform; }
-    .item {
-      box-sizing: border-box;
-      flex: 0 0 100px;
-      height: 100px;
-      border-right: 1px solid #ccc;
-      background: #eee;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
+    .item { box-sizing: border-box; flex: 0 0 100px; height: 100px; border-right: 1px solid #ccc; background: #eee; display: flex; align-items: center; justify-content: center; }
     .item img { max-width: 90px; max-height: 90px; }
     .marker { position: absolute; top: 0; left: 50%; width: 2px; height: 100%; background: red; transform: translateX(-50%); }
     .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; }
@@ -29,23 +19,15 @@
     @keyframes pop { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     .modal-content img { max-width: 200px; margin-bottom: 8px; }
     .close { margin-top: 10px; background: #333; color: #fff; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; }
-    button:disabled {
-      background: #aaa;
-      cursor: not-allowed;
-    }
+    button:disabled { background: #aaa !important; cursor: not-allowed; }
   </style>
 </head>
 <body>
   <div id="balance">Saldo: 100.00 zł</div>
-	<p>koszt 18 zł</p>
-  <div class="container">
-    <div class="items"></div>
-    <div class="marker"></div>
-  </div>
+  <button id="clicker">Kliker +1 zł</button>
 
-  <button id="open">Otwórz</button>
-  
-  
+  <div id="cases"></div>
+
   <div id="winModal" class="modal">
     <div class="modal-content">
       <img id="modalImg" alt="wygrana">
@@ -69,29 +51,20 @@
     ];
 
     const OPEN_COST = 18;
+    const COPIES = 50;
+    const TILE_W = 100;
+    const ROLL_MS = 4000;
+    const BASE_INDEX = Math.floor(COPIES / 2) * items.length;
 
-    const track     = document.querySelector('.items');
-    const btn       = document.getElementById('open');
+    let balance = 100;
+    let busyCases = new Set();
+
+    const balanceEl = document.getElementById('balance');
     const modal     = document.getElementById('winModal');
     const modalImg  = document.getElementById('modalImg');
     const modalText = document.getElementById('modalText');
     const modalCost = document.getElementById('modalCost');
     const closeBtn  = document.getElementById('closeBtn');
-    const balanceEl = document.getElementById('balance');
-
-    let balance = 100;
-
-    const COPIES = 50;
-    for (let c = 0; c < COPIES; c++) {
-      items.forEach(i => {
-        const div = document.createElement('div');
-        div.className = 'item';
-        const img = document.createElement('img');
-        img.src = i.img;
-        div.appendChild(img);
-        track.appendChild(div);
-      });
-    }
 
     function weightedRandom(list) {
       const total = list.reduce((s, i) => s + i.chance, 0);
@@ -108,62 +81,93 @@
       return file.replace(/\.[^/.]+$/, '');
     }
 
-    const TILE_W     = 100;
-    const ROLL_MS    = 4000;
-    const BASE_INDEX = Math.floor(COPIES / 2) * items.length;
-
-    track.style.transition = "none";
-    track.style.transform  = `translateX(${(TILE_W) - BASE_INDEX * TILE_W}px)`;
-
-    let busy = false;
-
     function updateBalanceDisplay() {
       balanceEl.textContent = `Saldo: ${balance.toFixed(2)} zł`;
-      btn.disabled = balance < OPEN_COST || busy;
+      document.querySelectorAll('.openBtn').forEach(btn=>{
+        btn.disabled = balance < OPEN_COST || busyCases.has(btn);
+      });
     }
 
-    updateBalanceDisplay();
+    function createCase() {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'case';
+      wrapper.innerHTML = `
+        <div class="container">
+          <div class="items"></div>
+          <div class="marker"></div>
+        </div>
+        <button class="openBtn">Otwórz</button>
+      `;
+      const track = wrapper.querySelector('.items');
+      for (let c = 0; c < COPIES; c++) {
+        items.forEach(i => {
+          const div = document.createElement('div');
+          div.className = 'item';
+          const img = document.createElement('img');
+          img.src = i.img;
+          div.appendChild(img);
+          track.appendChild(div);
+        });
+      }
+      track.style.transition = "none";
+      track.style.transform  = `translateX(${TILE_W - BASE_INDEX * TILE_W}px)`;
+      const btn = wrapper.querySelector('.openBtn');
 
-    btn.addEventListener('click', () => {
-      if (busy || balance < OPEN_COST) return;
-      busy = true;
-      updateBalanceDisplay();
-
-      balance -= OPEN_COST;
-      updateBalanceDisplay();
-
-      const idx = weightedRandom(items);
-      const extraLaps   = 5;
-      const targetIndex = BASE_INDEX + items.length * extraLaps + idx;
-      const targetOffset= TILE_W - targetIndex * TILE_W;
-
-      track.style.transition = `transform ${ROLL_MS/1000}s cubic-bezier(0.25, 1, 0.5, 1)`;
-      track.style.transform  = `translateX(${targetOffset}px)`;
-
-      setTimeout(() => {
-        const chosen = items[idx];
-
-        track.style.transition = "none";
-        const resetIndex  = BASE_INDEX + idx;
-        const resetOffset = TILE_W - resetIndex * TILE_W;
-        track.style.transform = `translateX(${resetOffset}px)`;
-
-        modalImg.src = chosen.img;
-        modalText.textContent = fileNameNoExt(chosen.img);
-        modalCost.textContent = `Koszt: ${chosen.cost.toFixed(2)} zł`;
-        modal.style.display = 'flex';
-
-        balance += chosen.cost;
+      btn.addEventListener('click', () => {
+        if (busyCases.has(btn) || balance < OPEN_COST) return;
+        busyCases.add(btn);
         updateBalanceDisplay();
 
-      }, ROLL_MS);
-    });
+        balance -= OPEN_COST;
+        updateBalanceDisplay();
+
+        const idx = weightedRandom(items);
+        const extraLaps = 5;
+        const targetIndex  = BASE_INDEX + items.length * extraLaps + idx;
+        const targetOffset = TILE_W - targetIndex * TILE_W;
+
+        track.style.transition = `transform ${ROLL_MS/1000}s cubic-bezier(0.25, 1, 0.5, 1)`;
+        track.style.transform  = `translateX(${targetOffset}px)`;
+
+        setTimeout(() => {
+          const chosen = items[idx];
+          track.style.transition = "none";
+          const resetIndex  = BASE_INDEX + idx;
+          const resetOffset = TILE_W - resetIndex * TILE_W;
+          track.style.transform = `translateX(${resetOffset}px)`;
+
+          modalImg.src = chosen.img;
+          modalText.textContent = fileNameNoExt(chosen.img);
+          modalCost.textContent = `Koszt: ${chosen.cost.toFixed(2)} zł`;
+          modal.style.display = 'flex';
+
+          balance += chosen.cost;
+          updateBalanceDisplay();
+
+          busyCases.delete(btn);
+          updateBalanceDisplay();
+        }, ROLL_MS);
+      });
+
+      return wrapper;
+    }
+
+    const casesContainer = document.getElementById('cases');
+    for (let i=0; i<3; i++) {
+      casesContainer.appendChild(createCase());
+    }
 
     closeBtn.addEventListener('click', () => {
       modal.style.display = 'none';
-      busy = false;
       updateBalanceDisplay();
     });
+
+    document.getElementById('clicker').addEventListener('click', () => {
+      balance += 1;
+      updateBalanceDisplay();
+    });
+
+    updateBalanceDisplay();
   </script>
 </body>
 </html>
